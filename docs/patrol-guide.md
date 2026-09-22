@@ -4,6 +4,41 @@
 
 Threads 關鍵字巡邏系統讓你能夠自動監控特定關鍵字的公開貼文，並生成回覆草稿。所有回覆都需要經過人工審批才會發布。
 
+## Windows 使用者注意事項
+
+### 編碼問題解決
+
+在 Windows 上使用時，可能會遇到編碼錯誤（特別是繁體中文關鍵字）。請使用以下方法之一：
+
+**方法 1：設定環境變數（推薦）**
+
+```powershell
+# PowerShell
+$env:PYTHONUTF8=1
+python scripts/patrol_threads.py fetch --keywords "AI,演算法"
+```
+
+```cmd
+# CMD
+set PYTHONUTF8=1
+python scripts\patrol_threads.py fetch --keywords "AI,演算法"
+```
+
+**方法 2：變更控制台代碼頁**
+
+```cmd
+chcp 65001
+python scripts\patrol_threads.py fetch --keywords "AI,演算法"
+```
+
+**方法 3：使用純英文關鍵字**
+
+如果以上方法都無效，可以暫時使用英文關鍵字測試：
+
+```powershell
+python scripts/patrol_threads.py fetch --keywords "AI,algorithm"
+```
+
 ## 核心功能
 
 1. **關鍵字搜尋** — 透過 Meta Threads Graph API 搜尋公開貼文

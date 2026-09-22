@@ -4,6 +4,37 @@
 
 The Threads Keyword Patrol system enables automated monitoring of public posts matching specific keywords and generates reply drafts. All replies require human approval before publishing.
 
+## Windows Users: Encoding Issues
+
+### Solving Encoding Problems
+
+When using on Windows, you may encounter encoding errors (especially with non-ASCII keywords). Use one of these methods:
+
+**Method 1: Set Environment Variable (Recommended)**
+
+```powershell
+# PowerShell
+$env:PYTHONUTF8=1
+python scripts/patrol_threads.py fetch --keywords "AI,algorithm"
+```
+
+```cmd
+# CMD
+set PYTHONUTF8=1
+python scripts\patrol_threads.py fetch --keywords "AI,algorithm"
+```
+
+**Method 2: Change Console Code Page**
+
+```cmd
+chcp 65001
+python scripts\patrol_threads.py fetch --keywords "AI,algorithm"
+```
+
+**Method 3: Use UTF-8 Compatible Terminal**
+
+Use Windows Terminal (modern) instead of legacy CMD for better Unicode support.
+
 ## Core Features
 
 1. **Keyword Search** — Search public posts via Meta Threads Graph API
