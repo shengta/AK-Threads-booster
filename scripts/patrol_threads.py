@@ -163,8 +163,22 @@ class PatrolDB:
         self.conn.commit()
         self.close()
     
+    def ensure_initialized(self):
+        """Ensure database is initialized (create tables if needed)."""
+        # Check if tables exist
+        self.connect()
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='monitored_posts'"
+        )
+        table_exists = cursor.fetchone() is not None
+        self.close()
+        
+        if not table_exists:
+            self.init_schema()
+    
     def post_exists(self, post_id: str) -> bool:
         """Check if a post already exists in the database."""
+        self.ensure_initialized()
         self.connect()
         cursor = self.conn.execute(
             "SELECT 1 FROM monitored_posts WHERE post_id = ?",
@@ -312,8 +326,32 @@ class ThreadsPatrol:
     def keyword_search(self, keyword: str) -> List[Dict]:
         """Search for posts matching a keyword."""
         if self.dry_run:
-            print(f"  [DRY RUN] Would search for keyword: {keyword}")
-            return []
+            print(f"  [DRY RUN] Simulating search for keyword: {keyword}")
+            # Return mock posts for dry-run testing
+            import hashlib
+            keyword_hash = hashlib.md5(keyword.encode()).hexdigest()[:8]
+            
+            mock_posts = [
+                {
+                    "id": f"mock_{keyword_hash}_001",
+                    "username": "test_user_1",
+                    "text": f"這是一篇關於 {keyword} 的測試貼文。我在研究如何更好地使用這個功能，有人有經驗可以分享嗎？",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "media_type": "TEXT",
+                    "permalink": f"https://threads.net/@test_user_1/post/mock_{keyword_hash}_001",
+                    "is_reply": False
+                },
+                {
+                    "id": f"mock_{keyword_hash}_002",
+                    "username": "creator_demo",
+                    "text": f"分享一下我對 {keyword} 的看法：這個領域還有很多值得探索的地方。大家覺得未來發展會如何？",
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "media_type": "TEXT",
+                    "permalink": f"https://threads.net/@creator_demo/post/mock_{keyword_hash}_002",
+                    "is_reply": False
+                }
+            ]
+            return mock_posts
         
         params = {
             "q": keyword,
@@ -392,7 +430,7 @@ class ThreadsPatrol:
                 # Insert new post
                 self.db.insert_post(post, [keyword])
                 new_posts += 1
-                print(f"    ✓ New post from @{post.get('username', 'unknown')}")
+                print(f"    [OK] New post from @{post.get('username', 'unknown')}")
         
         print(f"\n[FETCH SUMMARY]")
         print(f"  New posts: {new_posts}")
@@ -510,11 +548,11 @@ class ThreadsPatrol:
             if llm_result:
                 reply_text = llm_result["reply"]
                 provider = llm_result["provider"]
-                print(f"    ✓ Generated reply via {provider}")
+                print(f"    [OK] Generated reply via {provider}")
             else:
                 reply_text = self.generate_reply_template(post_text)
                 provider = "template"
-                print(f"    ✓ Generated template reply (no LLM key)")
+                print(f"    [OK] Generated template reply (no LLM key)")
             
             # Insert draft
             draft_id = self.db.insert_draft(post["post_id"], reply_text, provider)
@@ -547,12 +585,12 @@ class ThreadsPatrol:
     def approve_draft(self, draft_id: int):
         """Approve a draft for publishing."""
         self.db.update_draft_status(draft_id, "approved")
-        print(f"✓ Draft {draft_id} approved")
+        print(f"[OK] Draft {draft_id} approved")
     
     def reject_draft(self, draft_id: int, reason: Optional[str] = None):
         """Reject a draft."""
         self.db.update_draft_status(draft_id, "rejected", notes=reason)
-        print(f"✗ Draft {draft_id} rejected")
+        print(f"[REJECTED] Draft {draft_id} rejected")
     
     def publish_replies(self):
         """Publish approved drafts."""
@@ -579,9 +617,9 @@ class ThreadsPatrol:
                 # Call Threads API to publish reply
                 try:
                     reply_post_id = self._publish_reply_api(post_id, reply_text)
-                    print(f"    ✓ Published! Reply ID: {reply_post_id}")
+                    print(f"    [OK] Published! Reply ID: {reply_post_id}")
                 except Exception as e:
-                    print(f"    ✗ Publish failed: {e}")
+                    print(f"    [ERROR] Publish failed: {e}")
                     continue
             
             # Mark as published
@@ -665,8 +703,8 @@ def main():
     if args.command == "init":
         print("Initializing database...")
         patrol.db.init_schema()
-        print(f"✓ Database created at {DEFAULT_DB_PATH}")
-        print(f"✓ Config created at {DEFAULT_CONFIG_PATH}")
+        print(f"[OK] Database created at {DEFAULT_DB_PATH}")
+        print(f"[OK] Config created at {DEFAULT_CONFIG_PATH}")
         print("\nNext steps:")
         print("  1. Edit patrol_config.json with your keywords")
         print("  2. Set THREADS_ACCESS_TOKEN environment variable")
