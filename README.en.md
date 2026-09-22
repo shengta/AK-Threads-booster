@@ -50,6 +50,11 @@ Compare actual results against the prediction and write the learning back into t
 ### `/refresh`
 Update `threads_daily_tracker.json` through the Threads API when available, or via Chrome MCP when API access is not available.
 
+### 🆕 Keyword Patrol
+Monitor public posts by keywords and generate replies with human approval. A lightweight alternative to QuickDash focused on single-operator use with official Threads API only.
+
+See [docs/patrol-guide.en.md](docs/patrol-guide.en.md) for the complete guide.
+
 ---
 
 ## What Setup Produces
@@ -114,6 +119,56 @@ API access is optional, but it makes refresh much easier.
 
 ---
 
+## Keyword Patrol Feature
+
+Beyond analyzing your own posts, AK-Threads-Booster can now monitor others' public posts and generate replies.
+
+### Quick Start
+
+```bash
+# 1. Initialize patrol system
+python scripts/patrol_threads.py init
+
+# 2. Set token (or use dry-run mode for testing)
+export THREADS_ACCESS_TOKEN=your_token
+# or
+export PATROL_DRY_RUN=1
+
+# 3. Search by keywords
+python scripts/patrol_threads.py fetch --keywords "AI,algorithm"
+
+# 4. Generate reply drafts
+python scripts/patrol_threads.py draft
+
+# 5. Review and publish
+python scripts/patrol_threads.py list
+python scripts/patrol_threads.py approve 1
+python scripts/patrol_threads.py publish
+```
+
+### Key Features
+
+- ✅ **Official API Only** — No HTML scraping or reverse engineering
+- ✅ **Human Approval Gate** — All replies require explicit approval before publishing
+- ✅ **LLM Drafts** — Supports OpenAI/Anthropic, defaults to Traditional Chinese tone
+- ✅ **SQLite Deduplication** — Won't track the same post twice
+- ✅ **Dry-run Mode** — Test the full pipeline without a real token
+- ✅ **Schedulable** — Works with cron for automatic keyword fetching
+
+### Use Cases
+
+- Monitor industry keywords and join relevant discussions
+- Find potential customers' pain points and provide value
+- Track competitor topics and build brand visibility
+- Discover post ideas from others' discussions
+
+Complete documentation:
+
+- [Patrol Guide (English)](docs/patrol-guide.en.md)
+- [繁體中文完整指南](docs/patrol-guide.md)
+
+---
+
 ## Product Positioning
 
 This is not a "guaranteed viral post" tool.
@@ -167,13 +222,18 @@ AK-Threads-booster/
 |  |- data-confidence.md
 |  |- chrome-selectors.md
 |- scripts/
-|  |- fetch_threads.py
+|  |- fetch_threads.py         # Fetch your own historical posts
+|  |- patrol_threads.py         # 🆕 Keyword patrol system
 |  |- parse_export.py
 |  |- update_snapshots.py
 |  |- update_topic_freshness.py
 |  |- render_companions.py
+|- docs/
+|  |- patrol-guide.md           # 🆕 Patrol guide (Traditional Chinese)
+|  |- patrol-guide.en.md        # 🆕 Patrol guide (English)
 |- templates/
 |- examples/
+|- .env.example                 # 🆕 Environment variables template
 ```
 
 ---
