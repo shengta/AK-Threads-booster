@@ -4,6 +4,8 @@
 
 Threads 關鍵字巡邏系統讓你能夠自動監控特定關鍵字的公開貼文，並生成回覆草稿。所有回覆都需要經過人工審批才會發布。
 
+系統採用類似 Claude 的運營工作流程：批量關鍵字搜尋 → 智能篩選 → 品牌聲音草稿 → 人工審批 → 發布。
+
 ## Windows 使用者注意事項
 
 ### 編碼問題解決
@@ -39,13 +41,63 @@ python scripts\patrol_threads.py fetch --keywords "AI,演算法"
 python scripts/patrol_threads.py fetch --keywords "AI,algorithm"
 ```
 
+## 類 Claude 運營工作流程
+
+系統模擬專業社群運營的五步驟工作流程：
+
+### 1. 批量關鍵字抓取
+
+支援多關鍵字批量搜尋（例如：面膜、敏感肌面膜、保濕面膜）。
+
+```bash
+python scripts/patrol_threads.py fetch --keywords "面膜,敏感肌面膜,保濕面膜"
+```
+
+### 2. 智能篩選 OUT（排除不適合的貼文）
+
+自動過濾以下內容：
+
+- **競品推廣貼文** — 含購買連結、促銷、代購等商業內容
+- **非真實消費者貼文** — 廣告、招聘、抽獎活動
+- **高風險負面堆砌** — 情緒激烈的負評（回覆容易適得其反）
+
+### 3. 智能篩選 IN（保留值得回覆的貼文）
+
+優先保留：
+
+- **真實消費者需求** — 包含提問、求推薦的貼文
+- **真實使用體驗分享** — 消費者自發討論
+
+### 4. 品牌聲音草稿生成
+
+草稿回覆遵循10個品牌聲音原則：
+
+1. 像跟朋友說話（不刻意正式）
+2. 可用反直觀開場
+3. 只講一個重點
+4. 適時以常見客戶問題開頭
+5. 明確表達立場（不用「可能」「或許」）
+6. 提供具體數字和案例
+7. 給出真正有用的建議（不是空洞讚美）
+8. 費曼簡單性（最簡單的話解釋）
+9. 適當討論缺點（建立信任）
+10. 鏡像原貼文關鍵用詞
+
+### 5. 人工審批後發布
+
+系統**永不自動發布**。所有草稿都需要人工：
+
+- 審閱內容
+- 批准 (`approve`) 或拒絕 (`reject`)
+- 手動執行 `publish` 指令
+
 ## 核心功能
 
-1. **關鍵字搜尋** — 透過 Meta Threads Graph API 搜尋公開貼文
+1. **批量關鍵字搜尋** — 透過 Meta Threads Graph API 搜尋公開貼文
 2. **SQLite 持久化** — 自動去重，不會重複追蹤同一篇貼文
-3. **篩選規則** — 可設定排除詞、最小文字長度等條件
-4. **LLM 草稿回覆** — 使用 OpenAI 或 Anthropic 生成繁體中文回覆（可選）
-5. **人工審批** — 所有回覆都需要明確批准才會發布
+3. **智能篩選規則** — LLM + 啟發式混合篩選，過濾不適合回覆的內容
+4. **品牌聲音草稿** — 使用 OpenAI 或 Anthropic 生成遵循品牌聲音的繁體中文回覆
+5. **人工審批門檻** — 所有回覆都需要明確批准才會發布
 6. **乾跑模式** — 可在沒有真實 token 的情況下測試流程
 
 ## 前置需求
@@ -165,33 +217,80 @@ crontab -e
 
 ```json
 {
-  "keywords": ["AI", "演算法", "社群經營"],
+  "keywords": ["面膜", "敏感肌面膜", "保濕推薦"],
   "exclude_terms": ["廣告", "抽獎"],
   "search_type": "RECENT",
   "max_posts_per_fetch": 50,
   "reply_language": "zh-TW",
   "brand_voice": {
     "tone": "professional yet approachable",
-    "style": "直接、具體、不講空話"
+    "style": "直接、具體、不講空話",
+    "signature_elements": [
+      "像跟朋友說話",
+      "明確表達立場",
+      "提供具體數字和案例"
+    ]
   },
   "screening_rules": {
     "min_text_length": 20,
     "skip_replies": true,
-    "skip_own_posts": true
+    "skip_own_posts": true,
+    "skip_competitor_promo": true,
+    "skip_non_consumer": true,
+    "skip_high_risk_negative": true,
+    "prefer_real_demand": true
+  },
+  "llm_settings": {
+    "provider": "anthropic",
+    "model": "claude-3-5-sonnet-20241022",
+    "temperature": 0.7,
+    "max_tokens": 300
   }
 }
 ```
 
 ### 欄位說明
 
-- `keywords` — 要監控的關鍵字列表
-- `exclude_terms` — 排除含有這些詞的貼文
+#### 基本設定
+
+- `keywords` — 要監控的關鍵字列表（支援批量，用逗號分隔）
+- `exclude_terms` — 排除含有這些詞的貼文（基礎過濾）
 - `search_type` — `RECENT` (最新) 或 `TOP` (熱門)
 - `search_mode` — `KEYWORD` (關鍵字) 或 `TAG` (主題標籤)
 - `max_posts_per_fetch` — 每次搜尋最多抓幾篇（上限 100）
 - `reply_language` — 回覆語言（預設繁體中文）
-- `brand_voice` — 品牌語調設定（會傳給 LLM）
-- `screening_rules` — 篩選規則
+
+#### 品牌聲音設定
+
+- `brand_voice.tone` — 整體語氣（例如：professional yet approachable）
+- `brand_voice.style` — 寫作風格（例如：直接、具體、不講空話）
+- `brand_voice.signature_elements` — 品牌特色元素列表
+
+#### 智能篩選規則
+
+- `screening_rules.min_text_length` — 最小文字長度（預設 20）
+- `screening_rules.skip_replies` — 跳過回覆貼文（預設 true）
+- `screening_rules.skip_own_posts` — 跳過自己的貼文（預設 true）
+
+**新增的智能篩選選項**：
+
+- `screening_rules.skip_competitor_promo` — 過濾競品推廣貼文（預設 true）
+- `screening_rules.skip_non_consumer` — 過濾非真實消費者貼文，如廣告、招聘、抽獎（預設 true）
+- `screening_rules.skip_high_risk_negative` — 過濾高風險負面堆砌（預設 true）
+- `screening_rules.prefer_real_demand` — 只保留真實需求/問題貼文（預設 true）
+
+**智能篩選工作原理**：
+
+1. **LLM 優先**：如果有 OpenAI 或 Anthropic API key，系統會用 LLM 進行語義理解篩選
+2. **啟發式回退**：沒有 API key 時，使用關鍵詞和模式匹配的啟發式規則
+3. **混合模式**：兩種方法都可以有效過濾，LLM 更準確，啟發式更快速
+
+#### LLM 設定
+
+- `llm_settings.provider` — `openai` 或 `anthropic`
+- `llm_settings.model` — 模型名稱（建議 Claude 3.5 Sonnet 或 GPT-4）
+- `llm_settings.temperature` — 創意度（0-1，預設 0.7）
+- `llm_settings.max_tokens` — 最大回覆長度
 
 ## 資料庫結構
 
@@ -308,6 +407,37 @@ python scripts/patrol_threads.py publish
 
 ## 常見問題
 
+### Q: 智能篩選需要 API key 嗎？
+
+A: **不一定**。智能篩選有兩種工作模式：
+
+1. **LLM 模式（推薦）**：
+   - 需要 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`
+   - 使用語義理解，準確度更高
+   - 能理解語境和隱含意圖
+
+2. **啟發式模式（免費回退）**：
+   - 不需要 API key
+   - 基於關鍵詞和模式匹配
+   - 對明顯的推廣、招聘等內容依然有效
+
+建議：測試階段可先用啟發式模式，正式使用時搭配 LLM 獲得更好效果。
+
+### Q: 如何判斷篩選效果？
+
+A: 執行 `fetch` 指令後，會顯示統計：
+
+```
+[FETCH SUMMARY]
+  New posts: 15
+  Skipped (existing): 23
+  Skipped (screening): 42
+```
+
+- `Skipped (screening)` 數字高 → 篩選在發揮作用
+- 之後執行 `list` 檢查草稿品質
+- 根據誤殺/漏放情況調整 `screening_rules` 設定
+
 ### Q: 為什麼搜尋結果都是空的？
 
 A: 可能原因：
@@ -318,6 +448,8 @@ A: 可能原因：
    - 確認 token 包含 `threads_keyword_search` scope
 3. API 限制
    - 確認沒有超過 500 queries / 7 days 的限制
+4. 篩選規則太嚴格
+   - 暫時關閉智能篩選選項測試（設為 false）
 
 ### Q: 如何查看 API 使用量？
 
@@ -329,14 +461,42 @@ A: Meta Developer Dashboard → 你的 App → Threads API → Insights
 curl "https://graph.threads.net/v1.0/me?fields=id,username&access_token=YOUR_TOKEN"
 ```
 
+### Q: 品牌聲音如何確保一致性？
+
+A: 系統透過三層機制確保品牌聲音：
+
+1. **LLM 系統提示**：10個品牌聲音規則直接嵌入草稿生成提示
+2. **模板回退**：即使沒有 API key，模板回覆也遵循相同原則
+3. **人工審批**：最終由你決定是否符合品牌聲音
+
+**調整品牌聲音**：
+
+編輯 `patrol_config.json` 的 `brand_voice` 區塊：
+
+```json
+{
+  "brand_voice": {
+    "tone": "像朋友一樣親切但專業",
+    "style": "具體、明確、不模稜兩可",
+    "signature_elements": [
+      "以數據說話",
+      "分享真實案例",
+      "不迴避產品限制"
+    ]
+  }
+}
+```
+
 ### Q: 回覆會不會自動發布？
 
-A: **不會**。系統設計就是要有人工審批門檻：
+A: **絕不會**。系統設計就是要有人工審批門檻：
 
 1. `fetch` → 找到貼文
 2. `draft` → 生成草稿（`pending` 狀態）
-3. `approve` → 人工批准（`approved` 狀態）
+3. `approve` → **人工批准**（`approved` 狀態）
 4. `publish` → 才會真正發布
+
+這個設計模仿專業運營團隊的工作流程，確保每條回覆都經過人工審核。
 
 ### Q: 可以一次批准多個草稿嗎？
 
