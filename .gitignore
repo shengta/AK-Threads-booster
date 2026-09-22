@@ -10,6 +10,10 @@ style_guide.md
 brand_voice.md
 concept_library.md
 
+# Keyword patrol data (created by patrol_threads.py)
+patrol_threads.db
+patrol_config.json
+
 # User's topic bank and idea files (anchored to repo root — do NOT match skills/topics/)
 /idea/
 /topics/
@@ -36,4 +40,6 @@ desktop.ini
 
 # Environment variables / secrets
 .env
-.env.*
+.env.local
+.env.*.local
+!.env.example

@@ -86,6 +86,20 @@ AK-Threads-Booster 是一套給 Threads 創作者用的 AI skill 系統。
 
 你不用每次都自己慢慢補資料。
 
+### 7. 🆕 關鍵字巡邏：監控值得參與的話題
+
+**新功能** — `patrol_threads.py` 是一個獨立的關鍵字巡邏系統：
+
+- 透過 Meta Threads API 搜尋特定關鍵字的公開貼文
+- 自動生成回覆草稿（可用 LLM 或預設模板）
+- 所有回覆都需要**人工審批**才會發布
+- SQLite 持久化，自動去重
+- 支援乾跑模式，可在沒有真實 token 時測試
+
+這是一個替代 QuickDash/快客的輕量方案，專注於單人操作、Threads 官方 API、人工審批為核心。
+
+詳細使用方法請見 [docs/patrol-guide.md](docs/patrol-guide.md)
+
 ---
 
 ## 最適合誰
@@ -174,6 +188,56 @@ API 不是必須，但如果你有 API，更新會輕鬆很多。
 
 ---
 
+## 關鍵字巡邏功能
+
+除了分析自己的貼文，AK-Threads-Booster 現在也能幫你監控別人的公開貼文並產生回覆。
+
+### 快速開始
+
+```bash
+# 1. 初始化巡邏系統
+python scripts/patrol_threads.py init
+
+# 2. 設定 token (或用乾跑模式測試)
+export THREADS_ACCESS_TOKEN=your_token
+# 或
+export PATROL_DRY_RUN=1
+
+# 3. 搜尋關鍵字
+python scripts/patrol_threads.py fetch --keywords "AI,演算法"
+
+# 4. 生成回覆草稿
+python scripts/patrol_threads.py draft
+
+# 5. 審批並發布
+python scripts/patrol_threads.py list
+python scripts/patrol_threads.py approve 1
+python scripts/patrol_threads.py publish
+```
+
+### 主要特色
+
+- ✅ **僅官方 API** — 不做 HTML scraping 或逆向工程
+- ✅ **人工審批門檻** — 所有回覆都要明確批准才發布
+- ✅ **LLM 草稿** — 支援 OpenAI/Anthropic，預設繁體中文語調
+- ✅ **SQLite 去重** — 不會重複追蹤同一篇貼文
+- ✅ **乾跑模式** — 可在沒有真實 token 時測試完整流程
+- ✅ **可排程** — 可搭配 cron 自動抓取新貼文
+
+### 使用情境
+
+- 監控產業關鍵字，參與相關討論
+- 找到潛在客戶的痛點，提供價值
+- 追蹤競品話題，建立品牌能見度
+- 從別人的討論中找到下一篇貼文靈感
+
+詳細文件：
+
+- [繁體中文完整指南](docs/patrol-guide.md)
+- [English Guide](docs/patrol-guide.en.md)
+
+---
+
 ## 產品定位
 
 AK-Threads-Booster 是一套以你的 Threads 歷史資料為核心的內容決策系統。
@@ -228,13 +292,18 @@ AK-Threads-booster/
 |  |- data-confidence.md
 |  |- chrome-selectors.md
 |- scripts/
-|  |- fetch_threads.py
+|  |- fetch_threads.py         # 抓取自己的歷史貼文
+|  |- patrol_threads.py         # 🆕 關鍵字巡邏系統
 |  |- parse_export.py
 |  |- update_snapshots.py
 |  |- update_topic_freshness.py
 |  |- render_companions.py
+|- docs/
+|  |- patrol-guide.md           # 🆕 巡邏系統完整指南（繁中）
+|  |- patrol-guide.en.md        # 🆕 Patrol Guide (English)
 |- templates/
 |- examples/
+|- .env.example                 # 🆕 環境變數範例
 ```
 
 ---
