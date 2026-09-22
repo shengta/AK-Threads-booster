@@ -134,7 +134,11 @@ DEFAULT_CONFIG = {
     "screening_rules": {
         "min_text_length": 20,
         "skip_replies": True,
-        "skip_own_posts": True
+        "skip_own_posts": True,
+        "skip_competitor_promo": True,
+        "skip_non_consumer": True,
+        "skip_high_risk_negative": True,
+        "prefer_real_demand": True
     }
 }
 
@@ -374,6 +378,156 @@ class ThreadsPatrol:
             print(f"  Error searching for '{keyword}': {e}")
             return []
     
+    def _screen_competitor_promo(self, text: str) -> bool:
+        """Heuristic check for competitor promotional posts."""
+        promo_indicators = [
+            "購買", "下單", "限時", "優惠", "折扣", "特價", "促銷",
+            "買一送一", "免運", "團購", "代購", "預購", "現貨",
+            "官網", "賣場", "商城", "私訊", "PM", "加賴", "LINE",
+            "蝦皮", "momo", "pchome"
+        ]
+        # Count promo indicators
+        promo_count = sum(1 for indicator in promo_indicators if indicator in text)
+        return promo_count >= 3
+    
+    def _screen_non_consumer(self, text: str) -> bool:
+        """Heuristic check for non-consumer posts (ads/recruiting/giveaways)."""
+        non_consumer_patterns = [
+            # Ads
+            ("廣告", "合作"), ("廣告", "業配"), ("廣告", "邀約"),
+            # Recruiting
+            ("徵", "人才"), ("招募", ""), ("應徵", ""), ("職缺", ""),
+            ("兼職", ""), ("全職", ""), ("履歷", ""),
+            # Giveaways
+            ("抽獎", ""), ("贈送", ""), ("送出", ""), ("免費領", ""),
+            ("分享抽", ""), ("留言抽", ""), ("tag", "朋友"),
+        ]
+        
+        text_lower = text.lower()
+        for pattern in non_consumer_patterns:
+            if all(term in text for term in pattern if term):
+                return True
+        
+        # Single strong indicators
+        strong_indicators = ["徵才", "招聘", "抽獎活動", "贈品"]
+        if any(indicator in text for indicator in strong_indicators):
+            return True
+        
+        return False
+    
+    def _screen_high_risk_negative(self, text: str) -> bool:
+        """Heuristic check for high-risk pile-on negatives."""
+        negative_indicators = [
+            "爛", "垃圾", "騙", "詐騙", "黑心", "有毒", "致癌",
+            "過敏", "發炎", "紅腫", "刺痛", "不要買", "踩雷"
+        ]
+        
+        # High-risk if multiple strong negatives or angry context
+        negative_count = sum(1 for indicator in negative_indicators if indicator in text)
+        
+        # Check for angry/aggressive tone
+        angry_indicators = ["!!!!", "絕對不", "千萬別", "太扯", "傻眼"]
+        has_angry_tone = any(indicator in text for indicator in angry_indicators)
+        
+        # High risk if 2+ negatives or 1+ negative with angry tone
+        return negative_count >= 2 or (negative_count >= 1 and has_angry_tone)
+    
+    def _screen_real_demand(self, text: str) -> bool:
+        """Heuristic check for real demand/questions from consumers."""
+        demand_indicators = [
+            "推薦", "請問", "想問", "有人", "大家", "求",
+            "適合", "好用", "效果", "怎麼", "如何", "會不會",
+            "是否", "可以", "能不能", "有沒有", "哪裡買", "哪個"
+        ]
+        
+        question_marks = text.count("?") + text.count("?")
+        has_question = question_marks > 0
+        
+        # Check for demand indicators
+        demand_count = sum(1 for indicator in demand_indicators if indicator in text)
+        
+        # Real demand if has question or multiple demand indicators
+        return has_question or demand_count >= 2
+    
+    def _screen_with_llm(self, post: Dict) -> Dict[str, Any]:
+        """Use LLM for intelligent screening (optional)."""
+        text = post.get("text", "")
+        
+        screening_prompt = f"""請分析以下 Threads 貼文，判斷是否適合品牌回覆：
+
+貼文內容：
+{text}
+
+請回答以下問題（只回答 yes 或 no）：
+1. 是否為競品推廣貼文？
+2. 是否為非真實消費者貼文（廣告/招聘/抽獎）？
+3. 是否為高風險負面堆砌（容易適得其反）？
+4. 是否為真實需求或真實消費者問題？
+
+請用以下 JSON 格式回覆：
+{{
+  "is_competitor_promo": "yes/no",
+  "is_non_consumer": "yes/no",
+  "is_high_risk_negative": "yes/no",
+  "is_real_demand": "yes/no",
+  "reasoning": "簡短說明"
+}}"""
+        
+        try:
+            # Try to use LLM for screening
+            openai_key = os.getenv("OPENAI_API_KEY")
+            anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+            
+            if openai_key or anthropic_key:
+                llm_settings = self.config.get("llm_settings", {})
+                provider = llm_settings.get("provider", "openai")
+                
+                if provider == "openai" and openai_key:
+                    result = self._screen_with_openai(screening_prompt, llm_settings)
+                elif provider == "anthropic" and anthropic_key:
+                    result = self._screen_with_anthropic(screening_prompt, llm_settings)
+                else:
+                    return None
+                
+                # Parse JSON response
+                import re
+                json_match = re.search(r'\{[^}]+\}', result.replace('\n', ' '))
+                if json_match:
+                    return json.loads(json_match.group(0))
+            
+        except Exception as e:
+            print(f"    LLM screening failed: {e}")
+        
+        return None
+    
+    def _screen_with_openai(self, prompt: str, settings: Dict) -> str:
+        """Screen using OpenAI."""
+        import openai
+        client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        
+        response = client.chat.completions.create(
+            model=settings.get("model", "gpt-4"),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=200
+        )
+        
+        return response.choices[0].message.content.strip()
+    
+    def _screen_with_anthropic(self, prompt: str, settings: Dict) -> str:
+        """Screen using Anthropic."""
+        import anthropic
+        client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        
+        response = client.messages.create(
+            model=settings.get("model", "claude-3-5-sonnet-20241022"),
+            max_tokens=200,
+            temperature=0.3,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        
+        return response.content[0].text.strip()
+    
     def passes_screening_rules(self, post: Dict) -> bool:
         """Check if a post passes screening rules."""
         rules = self.config.get("screening_rules", {})
@@ -393,7 +547,38 @@ class ThreadsPatrol:
         if any(term in text for term in exclude_terms):
             return False
         
-        # TODO: Add engagement threshold check when insights are available
+        # Advanced screening rules
+        # Try LLM screening first if available and any advanced rule is enabled
+        use_advanced = any([
+            rules.get("skip_competitor_promo"),
+            rules.get("skip_non_consumer"),
+            rules.get("skip_high_risk_negative"),
+            rules.get("prefer_real_demand")
+        ])
+        
+        if use_advanced:
+            llm_result = self._screen_with_llm(post)
+            
+            if llm_result:
+                # Use LLM result
+                if rules.get("skip_competitor_promo") and llm_result.get("is_competitor_promo") == "yes":
+                    return False
+                if rules.get("skip_non_consumer") and llm_result.get("is_non_consumer") == "yes":
+                    return False
+                if rules.get("skip_high_risk_negative") and llm_result.get("is_high_risk_negative") == "yes":
+                    return False
+                if rules.get("prefer_real_demand") and llm_result.get("is_real_demand") == "no":
+                    return False
+            else:
+                # Fallback to heuristics
+                if rules.get("skip_competitor_promo") and self._screen_competitor_promo(text):
+                    return False
+                if rules.get("skip_non_consumer") and self._screen_non_consumer(text):
+                    return False
+                if rules.get("skip_high_risk_negative") and self._screen_high_risk_negative(text):
+                    return False
+                if rules.get("prefer_real_demand") and not self._screen_real_demand(text):
+                    return False
         
         return True
     
@@ -448,26 +633,35 @@ class ThreadsPatrol:
         brand_voice = self.config.get("brand_voice", {})
         reply_lang = self.config.get("reply_language", "zh-TW")
         
-        prompt = f"""你是一個專業的 Threads 社群經營者。
+        prompt = f"""你是一個專業的 Threads 社群經營者。請為以下貼文撰寫一個有價值的回覆（{reply_lang}）。
 
-品牌語調：
+作者：@{author}
+貼文內容：
+{post_text}
+
+品牌語調核心原則（必須遵循）：
 - 語氣：{brand_voice.get('tone', 'professional yet approachable')}
 - 風格：{brand_voice.get('style', '直接、具體、不講空話')}
 
-請為以下貼文撰寫一個有價值的回覆（{reply_lang}）：
+10個品牌聲音規則：
+1. 像跟朋友說話一樣自然、不刻意正式
+2. 可以用反直覺的開場引起注意
+3. 只講一個重點，不貪多
+4. 如果合適，以常見客戶問題開頭（例如：「很多人問我...」）
+5. 明確表達立場，絕對不用「可能」「或許」這類模糊詞
+6. 提供具體數字或案例，不講空話
+7. 給出真正有用的建議，不是「很棒的分享」這類客套話
+8. 用最簡單的話解釋（費曼學習法），避免專業術語堆砌
+9. 適當時討論產品缺點或限制，建立信任（勝過只講優點）
+10. 鏡像原貼文的關鍵用詞和關注點
 
-作者：@{author}
-內容：
-{post_text}
+技術要求：
+- 字數：80-150字
+- 不使用表情符號（除非原文大量使用）
+- 必須是繁體中文
+- 不要 AI 感的制式開場
 
-回覆要求：
-1. 提供具體、可執行的建議或觀點
-2. 自然、不像 AI 生成
-3. 字數控制在 150 字以內
-4. 不要使用表情符號（除非原文大量使用）
-5. 避免「很棒的分享」這類空洞的客套話
-
-只輸出回覆內容，不要其他說明。"""
+只輸出回覆內容，不要任何其他說明或元數據。"""
         
         try:
             if provider == "openai" and openai_key:
@@ -516,13 +710,21 @@ class ThreadsPatrol:
     
     def generate_reply_template(self, post_text: str) -> str:
         """Generate a template reply (fallback when no LLM key)."""
+        # Template replies following brand voice principles:
+        # - conversational, not generic praise
+        # - specific, taking a stance
+        # - useful information
         templates = [
-            "感謝分享！這個觀點很有參考價值。",
-            "很實用的內容，已收藏。",
-            "同意你的看法，這點確實很重要。"
+            "這個方向對。我自己測試過類似做法，關鍵是要持續追蹤數據。",
+            "你提到的痛點我遇過。後來發現重點在前3秒，不是文案長度。",
+            "實測結果：這招在冷啟動期特別有效，大約2週後要調整策略。",
+            "你的觀察準確。我會補充一點：記得同時看完整觀看率，不只是觀看數。",
+            "同意。不過有個盲點要注意：這方法在週末效果會打折，要分開追蹤。"
         ]
-        # Simple: return first template (in real scenario, could be smarter)
-        return templates[0]
+        # Simple selection based on text length (in real scenario, could be smarter)
+        import hashlib
+        idx = int(hashlib.md5(post_text.encode()).hexdigest(), 16) % len(templates)
+        return templates[idx]
     
     def draft_replies(self):
         """Generate draft replies for posts without drafts."""
